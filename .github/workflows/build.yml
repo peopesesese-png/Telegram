@@ -6,6 +6,7 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest      # облачный компьютер с Linux
+    timeout-minutes: 60         # если сборка идёт дольше часа, GitHub сам её остановит
 
     steps:
       - name: Скачать код
@@ -20,11 +21,25 @@ jobs:
           java-version: 17
 
       - name: Подставить свои ключи
+        env:
+          ID: ${{ secrets.TG_API_ID }}      # кладём секреты в переменные
+          HASH: ${{ secrets.TG_API_HASH }}
         run: |
-          # sed ищет текст в файле и заменяет его на другой
           F=TMessagesProj/src/main/java/org/telegram/messenger/BuildVars.java
-          sed -i "s/APP_ID = [0-9]*;/APP_ID = ${{ secrets.TG_API_ID }};/" $F
-          sed -i "s/APP_HASH = \"[0-9a-f]*\";/APP_HASH = \"${{ secrets.TG_API_HASH }}\";/" $F
+          # проверка 1: секреты не пустые
+          if [ -z "$ID" ] || [ -z "$HASH" ]; then
+            echo "ОШИБКА: секрет TG_API_ID или TG_API_HASH пустой или не найден"
+            exit 1
+          fi
+          # sed ищет текст в файле и заменяет его на другой
+          sed -i "s/APP_ID = [0-9]*;/APP_ID = $ID;/" $F
+          sed -i "s/APP_HASH = \"[0-9a-f]*\";/APP_HASH = \"$HASH\";/" $F
+          # проверка 2: твои ключи реально попали в файл (сами ключи не печатаем)
+          if ! grep -qF "APP_ID = $ID;" $F || ! grep -qF "$HASH" $F; then
+            echo "ОШИБКА: ключи не подставились, строки в BuildVars.java выглядят иначе"
+            exit 1
+          fi
+          echo "Ключи подставлены"
 
       - name: Подставить свой адрес в google-services
         run: |
@@ -37,7 +52,11 @@ jobs:
       - name: Собрать приложение
         run: |
           chmod +x gradlew      # разрешаем запуск файла gradlew
-          ./gradlew assembleDebug
+          ./gradlew :TMessagesProj_App:assembleAfatDebug
+
+      - name: Если упало - показать доступные задачи
+        if: failure()           # этот шаг запускается только при ошибке
+        run: ./gradlew :TMessagesProj_App:tasks --all | grep -i assemble || true
 
       - name: Сохранить apk
         uses: actions/upload-artifact@v4
