@@ -26,6 +26,14 @@ jobs:
           sed -i "s/APP_ID = [0-9]*;/APP_ID = ${{ secrets.TG_API_ID }};/" $F
           sed -i "s/APP_HASH = \"[0-9a-f]*\";/APP_HASH = \"${{ secrets.TG_API_HASH }}\";/" $F
 
+      - name: Подставить свой адрес в google-services
+        run: |
+          # достаём твой адрес из gradle.properties (всё, что после "APP_PACKAGE=")
+          PKG=$(grep '^APP_PACKAGE=' gradle.properties | cut -d= -f2)
+          echo "Мой адрес: $PKG"
+          # находим файл google-services.json и меняем в нём адрес на твой (+ хвостик .beta)
+          find . -name google-services.json -exec sed -i -E "s|\"package_name\": *\"[^\"]*\"|\"package_name\": \"$PKG.beta\"|" {} +
+
       - name: Собрать приложение
         run: |
           chmod +x gradlew      # разрешаем запуск файла gradlew
