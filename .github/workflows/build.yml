@@ -6,7 +6,7 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest      # облачный компьютер с Linux
-    timeout-minutes: 60         # если сборка идёт дольше часа, GitHub сам её остановит
+    timeout-minutes: 90         # прошлая сборка шла 33 минуты, оставляем запас
 
     steps:
       - name: Скачать код
@@ -41,22 +41,32 @@ jobs:
           fi
           echo "Ключи подставлены"
 
-      - name: Подставить свой адрес в google-services
+      - name: Подготовить google-services (несколько адресов)
         run: |
           # достаём твой адрес из gradle.properties (всё, что после "APP_PACKAGE=")
           PKG=$(grep '^APP_PACKAGE=' gradle.properties | cut -d= -f2)
           echo "Мой адрес: $PKG"
-          # находим файл google-services.json и меняем в нём адрес на твой (+ хвостик .beta)
-          find . -name google-services.json -exec sed -i -E "s|\"package_name\": *\"[^\"]*\"|\"package_name\": \"$PKG.beta\"|" {} +
+          # для каждого файла google-services.json делаем копии записи "client"
+          # под разные адреса: каждому модулю найдётся своё имя
+          find . -name google-services.json | while read f; do
+            jq --arg p "$PKG" '
+              .client as $c
+              | .client = ([$p, ($p + ".beta"),
+                            "org.telegram.messenger",
+                            "org.telegram.messenger.beta",
+                            "org.telegram.messenger.web"]
+                  | map(. as $name
+                        | $c[0]
+                        | .client_info.android_client_info.package_name = $name))
+            ' "$f" > "$f.tmp" && mv "$f.tmp" "$f"
+            echo "Файл $f, адреса внутри:"
+            jq -r '.client[].client_info.android_client_info.package_name' "$f"
+          done
 
       - name: Собрать приложение
         run: |
           chmod +x gradlew      # разрешаем запуск файла gradlew
           ./gradlew :TMessagesProj_App:assembleAfatDebug
-
-      - name: Если упало - показать доступные задачи
-        if: failure()           # этот шаг запускается только при ошибке
-        run: ./gradlew :TMessagesProj_App:tasks --all | grep -i assemble || true
 
       - name: Сохранить apk
         uses: actions/upload-artifact@v4
